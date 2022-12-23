@@ -2,7 +2,7 @@ package dslab.client;
 
 /**
  * A Message Client application.
- *
+ * Edited
  * Do not change the existing method signatures!
  */
 public interface IMessageClient extends Runnable {
