@@ -41,7 +41,7 @@ public class DMAPConnectionThread extends Thread {
 
             String request;
 
-            writer.println("ok DMAP");
+            writer.println("ok DMAP2.0");
             writer.flush();
 
             // read client requests
@@ -135,6 +135,8 @@ public class DMAPConnectionThread extends Thread {
                     allMails = allMails.concat(mail.toString());
                     if (!mail.equals(mailBoxes.get(currentUser).get(mailBoxes.get(currentUser).size() - 1))) allMails = allMails.concat(separator);
                 }
+                allMails = allMails.concat(separator);
+                allMails = allMails.concat("ok");
                 return allMails;
             }
             return "no mail";
@@ -148,10 +150,13 @@ public class DMAPConnectionThread extends Thread {
                 for (Mail mail : mailBoxes.get(currentUser)) {
                     if (mail.getMessageId() == messageId) {
                         String separator = System.getProperty("line.separator");
+                        String hash = mail.getHash() == null ? "" : mail.getHash();
+                        String recipientList = Arrays.toString(mail.getRecipients().toArray());
                         return "from " + mail.getSender() + separator +
-                                "to " + Arrays.toString(mail.getRecipients().toArray()) + separator +
+                                "to " + recipientList.substring(1, recipientList.length() - 1) + separator +
                                 "subject " + mail.getSubject() + separator +
-                                "data " + mail.getData();
+                                "data " + mail.getData() + separator +
+                                "hash " + hash;
                     }
                 }
             }

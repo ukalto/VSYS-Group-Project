@@ -9,6 +9,7 @@ public class Mail {
     private List<String> recipients;
     private String subject;
     private String data;
+    private String hash;
 
     public Mail() {}
 
@@ -19,16 +20,17 @@ public class Mail {
         this.data = data;
     }
 
-    public Mail(int messageId, String sender, List<String> recipients, String subject, String data) {
+    public Mail(int messageId, String sender, List<String> recipients, String subject, String data, String hash) {
         this.messageId = messageId;
         this.sender = sender;
         this.recipients = recipients;
         this.subject = subject;
         this.data = data;
+        this.hash = hash;
     }
 
     public Mail(Mail that) {
-        this(that.getMessageId(), that.getSender(), that.getRecipients(), that.getSubject(), that.getData());
+        this(that.getMessageId(), that.getSender(), that.getRecipients(), that.getSubject(), that.getData(), that.getHash());
     }
 
     public int getMessageId() {
@@ -51,6 +53,8 @@ public class Mail {
         return data;
     }
 
+    public String getHash() { return hash; }
+
     public void setMessageId(int messageId) {
         this.messageId = messageId;
     }
@@ -70,6 +74,8 @@ public class Mail {
     public void setData(String data) {
         this.data = data;
     }
+
+    public void setHash(String hash) {this.hash = hash;}
 
     @Override
     public String toString() {

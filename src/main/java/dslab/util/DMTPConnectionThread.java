@@ -29,7 +29,7 @@ public abstract class DMTPConnectionThread extends Thread {
 
             String request;
 
-            writer.println("ok DMTP");
+            writer.println("ok DMTP2.0");
             writer.flush();
 
             // read client requests
@@ -44,7 +44,7 @@ public abstract class DMTPConnectionThread extends Thread {
                     response = "ok";
                     editMode = true;
                     mail = new Mail();
-                } else if (!request.startsWith("to") && !request.startsWith("from") && !request.startsWith("subject") && !request.startsWith("data") && !request.startsWith("send")) {
+                } else if (!request.startsWith("to") && !request.startsWith("from") && !request.startsWith("subject") && !request.startsWith("data") && !request.startsWith("hash") && !request.startsWith("send")) {
                     response = "error protocol error";
                     quit = true;
                 }
@@ -64,6 +64,9 @@ public abstract class DMTPConnectionThread extends Thread {
                     response = "ok";
                 } else if (request.startsWith("data") && parts.length >= 2) {
                     mail.setData(parts[1]);
+                    response = "ok";
+                } else if (request.startsWith("hash") && parts.length >= 2) {
+                    mail.setHash(parts[1]);
                     response = "ok";
                 }
 
@@ -90,7 +93,9 @@ public abstract class DMTPConnectionThread extends Thread {
             if (socket != null && !socket.isClosed()) {
                 try {
                     socket.close();
-                } catch (IOException e) {}
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         }
     }

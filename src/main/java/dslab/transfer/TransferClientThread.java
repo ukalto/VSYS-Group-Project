@@ -10,10 +10,7 @@ import java.io.PrintWriter;
 import java.io.UncheckedIOException;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -39,7 +36,7 @@ public class TransferClientThread implements Runnable {
         byte[] buffer;
         DatagramPacket packet;
         Mail mailToSend;
-        String[] commandOrder = {"begin", "to", "from", "subject", "data", "send", "quit"};
+        String[] commandOrder = {"begin", "to", "from", "subject", "data", "hash", "send", "quit"};
         String monitoringServerAddress = config.getString("monitoring.host");
         int monitoringServerPort = config.getInt("monitoring.port");
 
@@ -61,11 +58,18 @@ public class TransferClientThread implements Runnable {
         try {
             while (true) {
                 mailToSend = mailQueue.take();
-                // mail loop
+                List<String> domainList = new ArrayList<>();
+                // get domains
                 for (String recipient : mailToSend.getRecipients()) {
+                    String domain = recipient.split("@")[1];
+                    if (!domainList.contains(domain)) domainList.add(domain);
+                }
+                // send to every mailserver
+                for (String domain : domainList) {
                     boolean success = true;
                     String sender = mailToSend.getSender();
-                    String domain = recipient.split("@")[1];
+
+                    String recipientList = Arrays.toString(mailToSend.getRecipients().toArray());
 
                     if (domains.get(domain) == null) {
                         if (mailToSend.getSender().equals(currentAddress)) continue;
@@ -89,7 +93,7 @@ public class TransferClientThread implements Runnable {
                         String message = command;
                         switch (command) {
                             case "to":
-                                message = command + " " + recipient;
+                                message = command + " " + recipientList.substring(1, recipientList.length() - 1);
                                 break;
                             case "from":
                                 message = command + " " + mailToSend.getSender();
@@ -100,6 +104,13 @@ public class TransferClientThread implements Runnable {
                             case "data":
                                 message = command + " " + mailToSend.getData();
                                 break;
+                            case "hash":
+                                if (mailToSend.getHash() != null) {
+                                    message = command + " " + mailToSend.getHash();
+                                    break;
+                                } else {
+                                    continue;
+                                }
                         }
                         serverWriter.println(message);
                         serverWriter.flush();
