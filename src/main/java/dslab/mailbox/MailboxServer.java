@@ -49,7 +49,7 @@ public class MailboxServer implements IMailboxServer, Runnable {
             dmtpServerSocket = new ServerSocket(config.getInt("dmtp.tcp.port"));
             dmapServerSocket = new ServerSocket(config.getInt("dmap.tcp.port"));
             new Thread(new DMTPMailboxListenerThread(dmtpServerSocket, userConfig, mailBoxes, domain)).start();
-            new Thread(new DMAPListenerThread(dmapServerSocket, userConfig, mailBoxes)).start();
+            new Thread(new DMAPListenerThread(dmapServerSocket, userConfig, mailBoxes, componentId)).start();
         } catch (IOException e) {}
         shell.run();
     }

@@ -1,5 +1,12 @@
 package dslab.client;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+
 /**
  * A Message Client application.
  * Edited
@@ -16,7 +23,7 @@ public interface IMessageClient extends Runnable {
     /**
      * Outputs the contents of the user's inbox on the shell.
      */
-    void inbox();
+    void inbox() throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException;
 
     /**
      * Deletes the mail with the given id. Prints 'ok' if the mail was deleted successfully, 'error {explanation}'
@@ -24,7 +31,7 @@ public interface IMessageClient extends Runnable {
      *
      * @param id the mail id
      */
-    void delete(String id);
+    void delete(String id) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException;
 
     /**
      * Verifies the signature of the message by calculating its hash value using the shared secret. Prints 'ok' if the

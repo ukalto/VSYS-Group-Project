@@ -3,16 +3,18 @@ package dslab.mailbox;
 import dslab.util.Config;
 import dslab.util.Mail;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.io.UncheckedIOException;
-import java.net.ServerSocket;
+import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.file.Files;
+import java.security.*;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -26,13 +28,45 @@ public class DMAPConnectionThread extends Thread {
     private final ConcurrentHashMap<String, List<Mail>> mailBoxes;
     private String currentUser = null;
     private boolean quit = false;
+    private final String componentId;
 
-    public DMAPConnectionThread(Socket socket, Config userConfig, ConcurrentHashMap<String, List<Mail>> mailBoxes) {
+    private SecretKey secretKey;
+    private IvParameterSpec iv;
+
+    public DMAPConnectionThread(Socket socket, Config userConfig, ConcurrentHashMap<String, List<Mail>> mailBoxes, String componentId) {
         this.socket = socket;
         this.userConfig = userConfig;
         this.mailBoxes = mailBoxes;
+        this.componentId = componentId;
     }
 
+    public static String rsaDecrypt(String msg, PrivateKey key) throws Exception
+    {
+        byte[] encryptedBytes = decode(msg);
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.DECRYPT_MODE, key);
+        byte[] decryptedMessage = cipher.doFinal(encryptedBytes);
+        return new String(decryptedMessage, "UTF8");
+    }
+    private String aesEncrypt(String msg) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+        Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, this.secretKey, this.iv);
+        byte[] cipherText = cipher.doFinal(msg.getBytes());
+        return encode(cipherText);
+    }
+
+    private String aesDecrypt(String msg) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+        Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, this.secretKey, this.iv);
+        byte[] cipherText = cipher.doFinal(decode(msg));
+        return new String(cipherText);
+    }
+    private static String encode(byte[] data) {
+        return Base64.getEncoder().encodeToString(data);
+    }
+    private static byte[] decode(String data) {
+        return Base64.getDecoder().decode(data);
+    }
     public void run() {
         try {
 
@@ -44,15 +78,57 @@ public class DMAPConnectionThread extends Thread {
             writer.println("ok DMAP2.0");
             writer.flush();
 
+            //Handshake-Protocol Variables
+            boolean secureStarted = false;
+            boolean rsaComplete = false;
+            boolean aesEstablished = false;
+            PrivateKey privateKey = null;
+            String challenge = null;
             // read client requests
             while ((request = reader.readLine()) != null) {
+                //Check if client verified servers identity
+
+                //If RSA-Completed then decrypt AES-Encrypted messages
+                if(rsaComplete){
+                    request = aesDecrypt(request);
+                }
+
                 System.out.println("C: " + request);
 
                 String[] parts = request.split("\\s");
 
                 String response = "";
+                if(request.startsWith("startsecure")) {
+                    System.out.println("Startsecure initiated");
+                    response = "ok " + componentId;
+                    secureStarted = true;
+                }else if(secureStarted){
+                    System.out.println("SecureChannel: Receiving client response");
+                    File privateKeyFile = new File("./keys/server/" + componentId + ".der");
+                    byte[] privateKeyBytes = Files.readAllBytes(privateKeyFile.toPath());
+                    PKCS8EncodedKeySpec keySpecPrivate = new PKCS8EncodedKeySpec(privateKeyBytes);
+                    KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+                    privateKey = keyFactory.generatePrivate(keySpecPrivate);
+                    String decryptedMsg = rsaDecrypt(request, privateKey);
+                    System.out.println("Server received: " + decryptedMsg);
+                    String[] msgComponents = decryptedMsg.split(" ");
+                    challenge = msgComponents[1];
+                    //Set AES Parameters
+                    byte[] secretKeyBytes = decode(msgComponents[2]);
+                    secretKey = new SecretKeySpec(secretKeyBytes,"AES");
+                    iv = new IvParameterSpec(decode(msgComponents[3]));
 
-                if (request.startsWith("login")) {
+                    //Send decrypted Challenge to Client
+                    response = "ok " + challenge;
+                    response = aesEncrypt(response);
+                    secureStarted = false;
+                    rsaComplete = true;
+                }else if(request.equals("ok") && !aesEstablished)
+                {
+                    aesEstablished = true; //Finalize Handshake
+                    continue;
+                }
+                else if (request.startsWith("login")) {
                     if (parts.length != 3) response = "invalid number of arguments";
                     else {
                         response = login(parts[1], parts[2]);
@@ -89,9 +165,13 @@ public class DMAPConnectionThread extends Thread {
                     quit = true;
                 }
 
-                // print request
+                // print request, depending on handshake finalized encrypt message
                 System.out.println("S: " + response);
-                writer.println(response);
+                if(aesEstablished){
+                    writer.println(aesEncrypt(response));
+                }else{
+                    writer.println(response);
+                }
                 writer.flush();
                 if (quit) break;
             }
@@ -106,6 +186,12 @@ public class DMAPConnectionThread extends Thread {
         } catch (IOException e) {
             // you should properly handle all other exceptions
             throw new UncheckedIOException(e);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        } catch (InvalidKeySpecException e) {
+            throw new RuntimeException(e);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         } finally {
             if (socket != null && !socket.isClosed()) {
                 try {
