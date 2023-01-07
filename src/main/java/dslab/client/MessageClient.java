@@ -95,8 +95,8 @@ public class MessageClient implements IMessageClient, Runnable {
                 publicKey = keyFactory.generatePublic(keySpecPublic);
                 privateKey = keyFactory.generatePrivate(keySpecPrivate);
 
-                System.out.println(Base64.getEncoder().encodeToString(publicKey.getEncoded()));
-                System.out.println(Base64.getEncoder().encodeToString(privateKey.getEncoded()));
+                //System.out.println(Base64.getEncoder().encodeToString(publicKey.getEncoded()));
+                //System.out.println(Base64.getEncoder().encodeToString(privateKey.getEncoded()));
 
                 String challengeMsg = "ok " + encode(challenge) + " " + encode(secretKey.getEncoded()) + " " + encode(initVec.getIV());
                 String encryptedChallengeMsg = rsaEncrypt(challengeMsg, publicKey);
@@ -150,30 +150,26 @@ public class MessageClient implements IMessageClient, Runnable {
         List<String> mails = new ArrayList<>();
         String mailEntry;
         try {
-            mailEntry = aesDecrypt(mailboxReader.readLine());
-            if (mailEntry.startsWith("no")) {
-                shell.out().println(mailEntry);
-                return;
-            }
-            String[] allEntries = mailEntry.split("\r\n");
-            for (String entry : allEntries) {
-                if (entry.startsWith("ok")) {
-                    continue;
-                } else {
-                    mails.add(entry);
+            while (((mailEntry = aesDecrypt(mailboxReader.readLine())) != null)) {
+                if (mailEntry.startsWith("no")) {
+                    shell.out().println(mailEntry);
+                    return;
                 }
+                if (mailEntry.startsWith("ok")) {
+                    break;
+                }
+                mails.add(mailEntry);
             }
-            for (String mail : mails) {
+            for(String mail : mails) {
                 String mailId = mail.split(" ")[0];
                 mailboxWriter.println(aesEncrypt("show " + mailId));
                 mailboxWriter.flush();
-                String[] msgData = aesDecrypt(mailboxReader.readLine()).split("\r\n");
-                String from = msgData[0];
-                String to = msgData[1];
-                String subject = msgData[2];
-                String data = msgData[3];
-                String hash = msgData[4];
-
+                String from = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+                String to = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+                String subject = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+                String data = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+                // Don't need hash, but need to skip line
+                mailboxReader.readLine();
                 shell.out().println("Mail " + mailId + ", " + subject + ": ");
                 shell.out().println("From: " + from);
                 shell.out().println("To: " + to);

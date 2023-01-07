@@ -138,7 +138,7 @@ public class DMAPConnectionThread extends Thread {
 
                 // print request, depending on handshake finalized encrypt message
                 System.out.println("S: " + response);
-                if (aesEstablished) {
+                if (aesEstablished && !request.equals("list") && !request.startsWith("show")) {
                     writer.println(aesEncrypt(response));
                 } else {
                     writer.println(response);
@@ -181,18 +181,18 @@ public class DMAPConnectionThread extends Thread {
         return "error user not found";
     }
 
-    public String list() {
+    public String list() throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
         if (currentUser != null) {
             if (mailBoxes.containsKey(currentUser) && mailBoxes.get(currentUser).size() > 0) {
                 String allMails = "";
                 String separator = System.getProperty("line.separator");
                 for (Mail mail : mailBoxes.get(currentUser)) {
-                    allMails = allMails.concat(mail.toString());
+                    allMails = allMails.concat(aesEncrypt(mail.toString()));
                     if (!mail.equals(mailBoxes.get(currentUser).get(mailBoxes.get(currentUser).size() - 1)))
                         allMails = allMails.concat(separator);
                 }
                 allMails = allMails.concat(separator);
-                allMails = allMails.concat("ok");
+                allMails = allMails.concat(aesEncrypt("ok"));
                 return allMails;
             }
             return "no mail";
@@ -200,7 +200,7 @@ public class DMAPConnectionThread extends Thread {
         return "error not logged in";
     }
 
-    public String show(int messageId) {
+    public String show(int messageId) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
         if (currentUser != null) {
             if (mailBoxes.containsKey(currentUser)) {
                 for (Mail mail : mailBoxes.get(currentUser)) {
@@ -208,11 +208,16 @@ public class DMAPConnectionThread extends Thread {
                         String separator = System.getProperty("line.separator");
                         String hash = mail.getHash() == null ? "" : mail.getHash();
                         String recipientList = Arrays.toString(mail.getRecipients().toArray());
-                        return "from " + mail.getSender() + separator +
-                                "to " + recipientList.substring(1, recipientList.length() - 1) + separator +
-                                "subject " + mail.getSubject() + separator +
-                                "data " + mail.getData() + separator +
-                                "hash " + hash;
+                        String res = aesEncrypt("from " + mail.getSender());
+                        res += separator;
+                        res += (aesEncrypt("to " + recipientList.substring(1, recipientList.length() - 1)));
+                        res += separator;
+                        res += (aesEncrypt("subject " + mail.getSubject()));
+                        res += separator;
+                        res += (aesEncrypt("data " + mail.getData()));
+                        res += separator;
+                        res += (aesEncrypt("hash " + hash));
+                        return res;
                     }
                 }
             }
