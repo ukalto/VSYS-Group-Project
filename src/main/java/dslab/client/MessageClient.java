@@ -76,27 +76,18 @@ public class MessageClient implements IMessageClient, Runnable {
             }
             res = res.substring(res.indexOf(" ") + 1);
             File publicKeyFile = new File("./keys/client/" + res + "_pub.der");
-            File privateKeyFile = new File("./keys/server/mailbox-earth-planet.der");
 
             try {
                 //Generate Challenge, Secret Key and Initialization Vector
                 byte[] challenge = generateChallenge(32);
                 secretKey = generateSecretKey(256);
                 initVec = generateInitVec(16);
-
                 byte[] publicKeyBytes = Files.readAllBytes(publicKeyFile.toPath());
-                byte[] privateKeyBytes = Files.readAllBytes(privateKeyFile.toPath());
-
                 X509EncodedKeySpec keySpecPublic = new X509EncodedKeySpec(publicKeyBytes);
-                PKCS8EncodedKeySpec keySpecPrivate = new PKCS8EncodedKeySpec(privateKeyBytes);
 
                 KeyFactory keyFactory = KeyFactory.getInstance("RSA");
 
                 publicKey = keyFactory.generatePublic(keySpecPublic);
-                privateKey = keyFactory.generatePrivate(keySpecPrivate);
-
-                //System.out.println(Base64.getEncoder().encodeToString(publicKey.getEncoded()));
-                //System.out.println(Base64.getEncoder().encodeToString(privateKey.getEncoded()));
 
                 String challengeMsg = "ok " + encode(challenge) + " " + encode(secretKey.getEncoded()) + " " + encode(initVec.getIV());
                 String encryptedChallengeMsg = rsaEncrypt(challengeMsg, publicKey);
@@ -314,14 +305,6 @@ public class MessageClient implements IMessageClient, Runnable {
         cipher.init(Cipher.ENCRYPT_MODE, key);
         byte[] encryptedMsg = cipher.doFinal(msgToByte);
         return encode(encryptedMsg);
-    }
-
-    public static String rsaDecrypt(String msg, PrivateKey key) throws Exception {
-        byte[] encryptedBytes = decode(msg);
-        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-        cipher.init(Cipher.DECRYPT_MODE, key);
-        byte[] decryptedMessage = cipher.doFinal(encryptedBytes);
-        return new String(decryptedMessage, "UTF8");
     }
 
     private String aesEncrypt(String msg) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
