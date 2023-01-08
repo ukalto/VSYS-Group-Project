@@ -3,8 +3,14 @@ package dslab.client;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.*;
+import java.security.spec.EncodedKeySpec;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -18,7 +24,8 @@ import dslab.ComponentFactory;
 import dslab.util.Config;
 import dslab.util.Keys;
 
-import javax.crypto.Mac;
+import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
 
 public class MessageClient implements IMessageClient, Runnable {
 
@@ -31,31 +38,19 @@ public class MessageClient implements IMessageClient, Runnable {
     private BufferedReader mailboxReader;
     private PrintWriter mailboxWriter;
     private Mac mac;
+    private PublicKey publicKey;
+    private PrivateKey privateKey;
+    private SecretKey secretKey;
+    private IvParameterSpec initVec;
 
     /**
      * Creates a new client instance.
      *
      * @param componentId the id of the component that corresponds to the Config resource
-     * @param config the component config
-     * @param in the input stream to read console input from
-     * @param out the output stream to write console output to
+     * @param config      the component config
+     * @param in          the input stream to read console input from
+     * @param out         the output stream to write console output to
      */
-    public MessageClient(String componentId, Config config, InputStream in, PrintStream out) {
-        this.componentId = componentId;
-        this.config = config;
-        this.in = in;
-        this.out = out;
-        this.shell = new Shell(in, out);
-        shell.register(this);
-        shell.setPrompt(componentId + "> ");
-        try {
-            mac = Mac.getInstance("HmacSHA256");
-            mac.init(Keys.readSecretKey(new File("keys/hmac.key")));
-        } catch (NoSuchAlgorithmException | IOException | InvalidKeyException e) {
-            e.printStackTrace();
-        }
-    }
-
     @Override
     public void run() {
 
@@ -64,16 +59,69 @@ public class MessageClient implements IMessageClient, Runnable {
         String mailboxHost = config.getString("mailbox.host");
         int mailboxPort = config.getInt("mailbox.port");
 
-        //TODO: use startsecure (Lorenz)
-
         try {
             mailboxSocket = new Socket(mailboxHost, mailboxPort);
             mailboxReader = new BufferedReader(new InputStreamReader(mailboxSocket.getInputStream()));
             mailboxWriter = new PrintWriter(mailboxSocket.getOutputStream());
             // Skip ok DMAP2.0 line
             mailboxReader.readLine();
-            mailboxWriter.println("login " + username + " " + password);
+            //Establish secure connection
+            mailboxWriter.println("startsecure");
             mailboxWriter.flush();
+            //Retrieve Server Component Id
+            String res = mailboxReader.readLine();
+            if (!res.startsWith("ok")) {
+                System.out.println("Component Id Error, shutting down");
+                shutdown();
+            }
+            res = res.substring(res.indexOf(" ") + 1);
+            File publicKeyFile = new File("./keys/client/" + res + "_pub.der");
+
+            try {
+                //Generate Challenge, Secret Key and Initialization Vector
+                byte[] challenge = generateChallenge(32);
+                secretKey = generateSecretKey(256);
+                initVec = generateInitVec(16);
+                byte[] publicKeyBytes = Files.readAllBytes(publicKeyFile.toPath());
+                X509EncodedKeySpec keySpecPublic = new X509EncodedKeySpec(publicKeyBytes);
+
+                KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+
+                publicKey = keyFactory.generatePublic(keySpecPublic);
+
+                String challengeMsg = "ok " + encode(challenge) + " " + encode(secretKey.getEncoded()) + " " + encode(initVec.getIV());
+                String encryptedChallengeMsg = rsaEncrypt(challengeMsg, publicKey);
+                System.out.println(challengeMsg);
+                mailboxWriter.println(encryptedChallengeMsg);
+                mailboxWriter.flush();
+                //Check if challenge is correct
+                res = mailboxReader.readLine();
+                res = aesDecrypt(res);
+                res = res.substring(res.indexOf(' ') + 1);
+                if (!res.equals(encode(challenge))) {
+                    System.out.println("RSA Handshake failed, shutting down");
+                    shutdown();
+                } else {
+                    mailboxWriter.println(aesEncrypt("ok"));
+                    mailboxWriter.flush();
+                }
+                //RSA-Handshake completed proceed with login
+                String request = "login " + username + " " + password;
+                request = aesEncrypt(request);
+
+                mailboxWriter.println(request);
+                mailboxWriter.flush();
+
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            } catch (NoSuchAlgorithmException e) {
+                throw new RuntimeException(e);
+            } catch (InvalidKeySpecException e) {
+                throw new RuntimeException(e);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+
             String response = mailboxReader.readLine();
             if (response == null) {
                 System.out.println("Failed to log in, shutting down");
@@ -87,13 +135,13 @@ public class MessageClient implements IMessageClient, Runnable {
 
     @Command
     @Override
-    public void inbox() {
-        mailboxWriter.println("list");
+    public void inbox() throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+        mailboxWriter.println((aesEncrypt("list")));
         mailboxWriter.flush();
         List<String> mails = new ArrayList<>();
         String mailEntry;
         try {
-            while (((mailEntry = mailboxReader.readLine()) != null)) {
+            while (((mailEntry = aesDecrypt(mailboxReader.readLine())) != null)) {
                 if (mailEntry.startsWith("no")) {
                     shell.out().println(mailEntry);
                     return;
@@ -105,12 +153,12 @@ public class MessageClient implements IMessageClient, Runnable {
             }
             for(String mail : mails) {
                 String mailId = mail.split(" ")[0];
-                mailboxWriter.println("show " + mailId);
+                mailboxWriter.println(aesEncrypt("show " + mailId));
                 mailboxWriter.flush();
-                String from = mailboxReader.readLine().split("\\s", 2)[1];
-                String to = mailboxReader.readLine().split("\\s", 2)[1];
-                String subject = mailboxReader.readLine().split("\\s", 2)[1];
-                String data = mailboxReader.readLine().split("\\s", 2)[1];
+                String from = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+                String to = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+                String subject = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+                String data = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
                 // Don't need hash, but need to skip line
                 mailboxReader.readLine();
                 shell.out().println("Mail " + mailId + ", " + subject + ": ");
@@ -125,8 +173,8 @@ public class MessageClient implements IMessageClient, Runnable {
 
     @Command
     @Override
-    public void delete(String id) {
-        mailboxWriter.println("delete " + id);
+    public void delete(String id) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+        mailboxWriter.println(aesEncrypt("delete " + id));
         mailboxWriter.flush();
         try {
             shell.out().println(mailboxReader.readLine());
@@ -139,14 +187,14 @@ public class MessageClient implements IMessageClient, Runnable {
     @Override
     public void verify(String id) {
         try {
-            mailboxWriter.println("show " + id);
+            mailboxWriter.println(aesEncrypt("show " + id));
             mailboxWriter.flush();
-            String from = mailboxReader.readLine().split("\\s", 2)[1];
-            String to = mailboxReader.readLine().split("\\s", 2)[1];
-            String subject = mailboxReader.readLine().split("\\s", 2)[1];
-            String data = mailboxReader.readLine().split("\\s", 2)[1];
-            String[] hashOpt = mailboxReader.readLine().split("\\s", 2);
-            if (hashOpt.length <= 1)  {
+            String from = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+            String to = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+            String subject = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+            String data = aesDecrypt(mailboxReader.readLine()).split("\\s", 2)[1];
+            String[] hashOpt = aesDecrypt(mailboxReader.readLine()).split("\\s", 2);
+            if (hashOpt.length <= 1) {
                 shell.out().println("error");
                 return;
             }
@@ -155,7 +203,8 @@ public class MessageClient implements IMessageClient, Runnable {
             byte[] resultHash = mac.doFinal(msg.getBytes());
             if (hash.equals(Base64.getEncoder().withoutPadding().encodeToString(resultHash))) shell.out().println("ok");
             else shell.out().println("error");
-        } catch (IOException e) {
+        } catch (IOException | NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+                 InvalidKeyException | IllegalBlockSizeException | BadPaddingException e) {
             System.out.println("Failed to verify message");
         }
     }
@@ -229,8 +278,74 @@ public class MessageClient implements IMessageClient, Runnable {
         try {
             in.close();
             out.close();
-        } catch (IOException e) {}
+        } catch (IOException e) {
+        }
         throw new StopShellException();
+    }
+
+    public MessageClient(String componentId, Config config, InputStream in, PrintStream out) {
+        this.componentId = componentId;
+        this.config = config;
+        this.in = in;
+        this.out = out;
+        this.shell = new Shell(in, out);
+        shell.register(this);
+        shell.setPrompt(componentId + "> ");
+        try {
+            mac = Mac.getInstance("HmacSHA256");
+            mac.init(Keys.readSecretKey(new File("keys/hmac.key")));
+        } catch (NoSuchAlgorithmException | IOException | InvalidKeyException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static String rsaEncrypt(String msg, PublicKey key) throws Exception {
+        byte[] msgToByte = msg.getBytes();
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, key);
+        byte[] encryptedMsg = cipher.doFinal(msgToByte);
+        return encode(encryptedMsg);
+    }
+
+    private String aesEncrypt(String msg) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+        Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, this.secretKey, this.initVec);
+        byte[] cipherText = cipher.doFinal(msg.getBytes());
+        return encode(cipherText);
+    }
+
+    private String aesDecrypt(String msg) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+        Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, this.secretKey, this.initVec);
+        byte[] cipherText = cipher.doFinal(decode(msg));
+        return new String(cipherText);
+    }
+
+    private static String encode(byte[] data) {
+        return Base64.getEncoder().encodeToString(data);
+    }
+
+    private static byte[] decode(String data) {
+        return Base64.getDecoder().decode(data);
+    }
+
+    private static SecretKey generateSecretKey(int size) throws NoSuchAlgorithmException {
+        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(size);
+        SecretKey key = keyGenerator.generateKey();
+        return key;
+    }
+
+    private static IvParameterSpec generateInitVec(int size) {
+        byte[] iv = new byte[size];
+        new SecureRandom().nextBytes(iv);
+        return new IvParameterSpec(iv);
+    }
+
+    private static byte[] generateChallenge(int size) {
+        byte[] challenge = new byte[size];
+        new SecureRandom().nextBytes(challenge);
+        return challenge;
     }
 
     public static void main(String[] args) throws Exception {
