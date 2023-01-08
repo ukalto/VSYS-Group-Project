@@ -33,6 +33,8 @@ public class DMAPConnectionThread extends Thread {
     private SecretKey secretKey;
     private IvParameterSpec iv;
 
+    private boolean aesEstablished = false;
+
     public DMAPConnectionThread(Socket socket, Config userConfig, ConcurrentHashMap<String, List<Mail>> mailBoxes, String componentId) {
         this.socket = socket;
         this.userConfig = userConfig;
@@ -54,7 +56,6 @@ public class DMAPConnectionThread extends Thread {
             //Handshake-Protocol Variables
             boolean secureStarted = false;
             boolean rsaComplete = false;
-            boolean aesEstablished = false;
             PrivateKey privateKey = null;
             String challenge = null;
             // read client requests
@@ -187,12 +188,20 @@ public class DMAPConnectionThread extends Thread {
                 String allMails = "";
                 String separator = System.getProperty("line.separator");
                 for (Mail mail : mailBoxes.get(currentUser)) {
-                    allMails = allMails.concat(aesEncrypt(mail.toString()));
+                    if(aesEstablished){
+                        allMails = allMails.concat(aesEncrypt(mail.toString()));
+                    }else{
+                        allMails = allMails.concat(mail.toString());
+                    }
                     if (!mail.equals(mailBoxes.get(currentUser).get(mailBoxes.get(currentUser).size() - 1)))
                         allMails = allMails.concat(separator);
                 }
                 allMails = allMails.concat(separator);
-                allMails = allMails.concat(aesEncrypt("ok"));
+                if(aesEstablished) {
+                    allMails = allMails.concat(aesEncrypt("ok"));
+                }else{
+                    allMails = allMails.concat("ok");
+                }
                 return allMails;
             }
             return "no mail";
@@ -208,16 +217,24 @@ public class DMAPConnectionThread extends Thread {
                         String separator = System.getProperty("line.separator");
                         String hash = mail.getHash() == null ? "" : mail.getHash();
                         String recipientList = Arrays.toString(mail.getRecipients().toArray());
-                        String res = aesEncrypt("from " + mail.getSender());
-                        res += separator;
-                        res += (aesEncrypt("to " + recipientList.substring(1, recipientList.length() - 1)));
-                        res += separator;
-                        res += (aesEncrypt("subject " + mail.getSubject()));
-                        res += separator;
-                        res += (aesEncrypt("data " + mail.getData()));
-                        res += separator;
-                        res += (aesEncrypt("hash " + hash));
-                        return res;
+                        if(aesEstablished){
+                            String res = aesEncrypt("from " + mail.getSender());
+                            res += separator;
+                            res += (aesEncrypt("to " + recipientList.substring(1, recipientList.length() - 1)));
+                            res += separator;
+                            res += (aesEncrypt("subject " + mail.getSubject()));
+                            res += separator;
+                            res += (aesEncrypt("data " + mail.getData()));
+                            res += separator;
+                            res += (aesEncrypt("hash " + hash));
+                            return res;
+                        }else{
+                            return "from " + mail.getSender() + separator +
+                                    "to " + recipientList.substring(1, recipientList.length() - 1) + separator +
+                                    "subject " + mail.getSubject() + separator +
+                                    "data " + mail.getData() + separator +
+                                    "hash " + hash;
+                        }
                     }
                 }
             }
