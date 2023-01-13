@@ -2,6 +2,9 @@ package dslab.nameserver;
 
 import java.io.PrintStream;
 import java.rmi.RemoteException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -18,7 +21,7 @@ public class NameserverRemote implements INameserverRemote {
 
     private String checkDomain(String domain) throws InvalidDomainException {
         if (domain == null || domain.isEmpty() || !domain.matches("[A-Za-z\\.]*")) {
-            throw new InvalidDomainException("Domain " + domain + " is invalid");
+            throw new InvalidDomainException("Domain: " + domain + " is invalid");
         }
         return domain.toLowerCase();
     }
@@ -33,14 +36,14 @@ public class NameserverRemote implements INameserverRemote {
                 if (nameServers.containsKey(topLevelDomain)) {
                     nameServers.get(topLevelDomain).registerNameserver(domain.substring(domain.lastIndexOf('.') + 1), nameserver);
                 } else {
-                    throw new InvalidDomainException("No nameserver for domain " + topLevelDomain + " found");
+                    throw new InvalidDomainException("Namesever for domain " + topLevelDomain + " doesn't exist");
                 }
             } else {
                 // no sub domain -> name server has to be added here
                 if (!nameServers.containsKey(domain)) {
                     nameServers.put(domain, nameserver);
                 } else {
-                    throw new AlreadyRegisteredException("Nameserver for domain " + domain + " is already registered");
+                    throw new AlreadyRegisteredException("Nameserver with the domain: " + domain + " is already registered");
                 }
             }
         }
@@ -56,7 +59,7 @@ public class NameserverRemote implements INameserverRemote {
         if (this.domain != null && this.domain.equals(zone)) {
             synchronized (mailServers) {
                 if (this.mailServers.containsKey(mailServerName)) {
-                    throw new AlreadyRegisteredException("mail server " + domain + " already registered");
+                    throw new AlreadyRegisteredException("Mailserver: " + domain + " already registered");
                 } else {
                     mailServers.put(mailServerName, address);
                 }
@@ -71,7 +74,7 @@ public class NameserverRemote implements INameserverRemote {
     public INameserverRemote getNameserver(String zone) throws RemoteException {
         synchronized (nameServers) {
             if (!nameServers.containsKey(zone.toLowerCase())) {
-                throw new RemoteException("No name server for zone: " + zone.toLowerCase() + " found");
+                throw new RemoteException("Nameserver for zone: " + zone.toLowerCase() + " not found");
             }
             return nameServers.get(zone.toLowerCase());
         }
@@ -81,7 +84,7 @@ public class NameserverRemote implements INameserverRemote {
     public String lookup(String username) throws RemoteException {
         synchronized (mailServers) {
             if (!mailServers.containsKey(username.toLowerCase())) {
-                throw new RemoteException("Mail server with name " + username.toLowerCase() + " not found");
+                throw new RemoteException("Mailserver with the name: " + username.toLowerCase() + " not found");
             }
             return mailServers.get(username.toLowerCase());
         }
@@ -90,18 +93,23 @@ public class NameserverRemote implements INameserverRemote {
     public void printNameServers(PrintStream outputStream) {
         synchronized (nameServers) {
             AtomicInteger amount = new AtomicInteger(1);
-            nameServers.keySet().stream().sorted().forEach((domain) -> {
-                outputStream.printf("%d. %s%n", amount.getAndIncrement(), domain);
-            });
+            List<String> domains = new ArrayList<>(nameServers.keySet());
+            Collections.sort(domains);
+            for (String d : domains) {
+                outputStream.printf("%d. %s%n", amount.getAndIncrement(), d);
+            }
         }
     }
 
     public void printMailServers(PrintStream outputStream) {
         synchronized (mailServers) {
             AtomicInteger amount = new AtomicInteger(1);
-            mailServers.keySet().stream().sorted().forEach((domain) -> {
-                outputStream.printf("%d. %s %s%n", amount.getAndIncrement(), domain, mailServers.get(domain));
-            });
+            List<String> domains = new ArrayList<>(nameServers.keySet());
+            Collections.sort(domains);
+            for (String d : domains) {
+                outputStream.printf("%d. %s %s%n", amount.getAndIncrement(), d, mailServers.get(d));
+            }
         }
     }
 }
+
