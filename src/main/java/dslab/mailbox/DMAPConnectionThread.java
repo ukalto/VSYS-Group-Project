@@ -204,9 +204,17 @@ public class DMAPConnectionThread extends Thread {
                 }
                 return allMails;
             }
-            return "no mail";
+            if(aesEstablished){
+                return aesEncrypt("no mail");
+            }else{
+                return "no mail";
+            }
         }
-        return "error not logged in";
+        if(aesEstablished){
+            return aesEncrypt("error not logged in");
+        }else{
+            return "error not logged in";
+        }
     }
 
     public String show(int messageId) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
@@ -238,9 +246,17 @@ public class DMAPConnectionThread extends Thread {
                     }
                 }
             }
-            return "error unknown message id";
+            if(aesEstablished){
+                return aesEncrypt("error unknown message id");
+            }else{
+                return "error unknown message id";
+            }
         }
-        return "error not logged in";
+        if(aesEstablished){
+            return aesEncrypt("error not logged in");
+        }else{
+            return "error not logged in";
+        }
     }
 
     public String delete(int messageId) {
